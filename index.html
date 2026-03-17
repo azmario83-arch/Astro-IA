@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mario Bot v10.0 - Custom Avatar Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    
+    <script type="module">
+        // --- LOGICA DI SALVATAGGIO LOCALE ---
+        window.saveSettings = () => {
+            const log = document.getElementById('system-log-status');
+            log.innerText = "- Salvataggio locale in corso...";
+            
+            const settings = {
+                apiKey: document.getElementById('api-key-input').value,
+                engine: document.getElementById('engine-select').value,
+                customEngineId: document.getElementById('custom-engine-id').value,
+                extraInstructions: document.getElementById('extra-instructions').value
+            };
+
+            try {
+                localStorage.setItem('mario_bot_settings', JSON.stringify(settings));
+                log.innerText = "- Impostazioni salvate sul dispositivo.";
+                setTimeout(() => { 
+                    if(log.innerText.includes("dispositivo")) log.innerText = "- Local Storage: Active"; 
+                }, 3000);
+            } catch (e) {
+                log.innerText = "- Errore salvataggio locale.";
+            }
+        };
+
+        const loadSettings = () => {
+            const saved = localStorage.getItem('mario_bot_settings');
+            if (saved) {
+                const data = JSON.parse(saved);
+                document.getElementById('api-key-input').value = data.apiKey || "";
+                document.getElementById('engine-select').value = data.engine || "gemini-2.0-flash-exp";
+                document.getElementById('custom-engine-id').value = data.customEngineId || "";
+                document.getElementById('extra-instructions').value = data.extraInstructions || "";
+                
+                if(window.checkCustomEngine) window.checkCustomEngine(data.engine);
+                document.getElementById('system-log-status').innerText = "- Local Storage: Active";
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', loadSettings);
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600&display=swap');
+        :root { --primary: #ff003c; --bg-dark: #050505; }
+        body { background-color: var(--bg-dark); color: white; font-family: 'Inter', sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; touch-action: none; }
+        .font-orbitron { font-family: 'Orbitron', sans-serif; }
+        
+        /* Modalità Immersiva */
+        body.immersive-active header, body.immersive-active #main-chat-container { display: none !important; }
+        body.immersive-active #canvas-container { height: 100vh !important; }
+        
+        #canvas-container { width: 100%; height: 45vh; position: relative; background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%); overflow: hidden; transition: height 0.4s ease; z-index: 5; }
+        #bg-image-layer { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0; z-index: 1; filter: brightness(0.45) contrast(1.2) blur(0.5px); transition: opacity 1s ease, background-image 0.5s ease-in-out; }
+        #canvas-container canvas { position: absolute !important; top: 0; left: 0; z-index: 10 !important; }
+        
+        /* UI Immersiva */
+        #immersive-ui { display: none; position: fixed; inset: 0; z-index: 100; pointer-events: none; }
+        body.immersive-active #immersive-ui { display: block; }
+        
+        .glass-panel { background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .rog-button { background: linear-gradient(45deg, var(--primary), #b3002a); text-transform: uppercase; letter-spacing: 2px; box-shadow: 0 0 20px rgba(255, 0, 60, 0.4); pointer-events: auto; }
+        .live-active { animation: mic-glow 0.8s infinite alternate; border-color: var(--primary) !important; color: var(--primary) !important; }
+        
+        @keyframes mic-glow { from { box-shadow: 0 0 5px var(--primary); transform: scale(1); } to { box-shadow: 0 0 35px var(--primary); transform: scale(1.1); } }
+        
+        #main-chat-container { flex: 1; display: flex; flex-direction: column; background: linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(5,5,5,1) 100%); margin: 0.5rem; border-radius: 40px; border: 1px solid rgba(255, 0, 60, 0.15); overflow: hidden; z-index: 20; }
+        #chat-box { flex: 1; padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.2rem; scrollbar-width: none; }
+        #chat-box::-webkit-scrollbar { display: none; }
+        
+        .chat-msg { animation: slideIn 0.2s ease-out; padding: 1.1rem; border-radius: 22px; font-size: 0.95rem; max-width: 85%; }
+        .chat-msg.user { background: rgba(255,0,60,0.15); border: 1px solid rgba(255,0,60,0.2); align-self: flex-end; border-bottom-right-radius: 4px; }
+        .chat-msg.ai { background: rgba(0,242,255,0.08); border: 1px solid rgba(0,242,255,0.15); align-self: flex-start; border-bottom-left-radius: 4px; }
+        
+        /* Cronologia Chat Immersiva - Nuvolette Discrete */
+        #immersive-history { position: absolute; top: 120px; left: 30px; width: 280px; height: calc(100vh - 320px); pointer-events: none; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 10px; scrollbar-width: none; mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent); }
+        #immersive-history::-webkit-scrollbar { display: none; }
+        .hist-msg { font-size: 11px; padding: 10px 14px; border-radius: 20px; max-width: 90%; line-height: 1.4; animation: slideInLeft 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); backdrop-filter: blur(10px); }
+        .hist-msg.user { background: rgba(255, 0, 60, 0.2); border: 1px solid rgba(255, 0, 60, 0.3); color: #fff; align-self: flex-start; border-bottom-left-radius: 4px; }
+        .hist-msg.ai { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: rgba(255,255,255,0.8); align-self: flex-start; border-bottom-left-radius: 4px; }
+
+        @keyframes slideInLeft { from { opacity: 0; transform: translateX(-30px) scale(0.9); } to { opacity: 1; transform: translateX(0) scale(1); } }
+
+        #input-video-container { position: absolute; width: 100px; height: 100px; top: 20px; right: 20px; z-index: 500; display: none; cursor: move; touch-action: none; }
+        #input-video { width: 100%; height: 100%; border-radius: 50%; border: 2px solid var(--primary); object-fit: cover; transform: scaleX(-1); box-shadow: 0 0 20px var(--primary); pointer-events: none; }
+        .identity-badge { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); background: var(--primary); padding: 4px 12px; border-radius: 12px; font-family: 'Orbitron'; font-size: 10px; font-weight: bold; color: white; white-space: nowrap; z-index: 501; box-shadow: 0 0 15px var(--primary); text-transform: uppercase; }
+        
+        #bg-gallery { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.9); width: 90%; max-width: 500px; z-index: 4000; opacity: 0; pointer-events: none; transition: all 0.3s ease; }
+        #bg-gallery.active { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
+        .bg-card { aspect-ratio: 16/9; border-radius: 15px; overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; background: #111; position: relative; }
+        .bg-card:hover { border-color: var(--primary); transform: scale(1.03); }
+        .bg-card img { width: 100%; height: 100%; object-fit: cover; }
+        
+        select, textarea, input[type="text"], input[type="password"], input[type="file"] { background-color: rgba(255, 255, 255, 0.08) !important; color: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 12px; padding: 12px; width: 100%; outline: none; font-family: 'Inter', sans-serif; }
+        select option { background-color: #111 !important; color: #fff !important; }
+        
+        .loading-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; visibility: hidden; }
+        .loading-overlay.active { visibility: visible; }
+        
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <!-- Galleria Ambienti -->
+    <div id="bg-gallery" class="glass-panel p-6 rounded-[40px] border-red-600/30">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="font-orbitron text-red-600 font-bold uppercase tracking-widest text-sm">Ambience Control</h3>
+            <button onclick="toggleGallery()" class="text-white/40 text-[10px] font-orbitron uppercase">Chiudi</button>
+        </div>
+        <div class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-card flex flex-col items-center justify-center border-white/10" onclick="setBackground('')">
+                <div class="w-full h-full bg-[radial-gradient(circle,#222,#000)]"></div>
+                <span class="absolute text-[8px] font-orbitron text-gray-400 font-bold">AMBIENT BLACK</span>
+            </div>
+            <div class="bg-card" onclick="setBackground('https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=1000&auto=format&fit=crop')">
+                <img src="https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=200&auto=format&fit=crop" alt="Tech">
+            </div>
+            <div class="bg-card" onclick="setBackground('https://images.unsplash.com/photo-1605810230434-7631ac76ec81?q=80&w=1000&auto=format&fit=crop')">
+                <img src="https://images.unsplash.com/photo-1605810230434-7631ac76ec81?q=80&w=200&auto=format&fit=crop" alt="Neon">
+            </div>
+            <div class="bg-card" onclick="setBackground('https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1000&auto=format&fit=crop')">
+                <img src="https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=200&auto=format&fit=crop" alt="Hardware">
+            </div>
+        </div>
+        <div class="flex flex-col gap-3">
+            <input type="file" id="bg-upload" accept="image/*" class="hidden" onchange="uploadBackground(event)">
+            <label for="bg-upload" class="rog-button py-3 rounded-2xl text-center text-[10px] font-bold cursor-pointer">CARICA PERSONALE</label>
+        </div>
+    </div>
+
+    <!-- UI Immersiva Fullscreen -->
+    <div id="immersive-ui">
+        <button onclick="toggleImmersiveMode()" class="absolute top-8 left-8 p-4 glass-panel rounded-2xl text-white pointer-events-auto border border-red-600/30 flex items-center gap-2 hover:bg-red-600/20 transition-all">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 9 9 0 01-18 0z"></path></svg>
+            <span class="font-orbitron text-xs uppercase tracking-widest">Esci</span>
+        </button>
+
+        <!-- Cronologia Chat Immersiva (Nuvolette) -->
+        <div id="immersive-history"></div>
+
+        <div class="absolute bottom-10 left-1/2 -translate-x-1/2 w-[90%] max-w-2xl pointer-events-auto flex items-center gap-3 p-4 glass-panel rounded-3xl border border-white/10">
+            <button onclick="toggleCamera()" class="p-4 rounded-full bg-white/5 border border-white/10 transition-all" id="cam-btn-fs">
+                <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            </button>
+            <button id="mic-btn-fs" onclick="toggleContinuousMic()" class="p-4 rounded-full bg-white/5 border border-white/10 transition-all">
+                <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-20a3 3 0 00-3 3v8a3 3 0 006 0V5a3 3 0 00-3-3z"></path></svg>
+            </button>
+            <input type="text" id="user-input-fs" placeholder="Invia comando..." class="flex-1 bg-transparent border-none outline-none text-white font-inter" onkeypress="if(event.key === 'Enter') handleSendImmersive()">
+            <button onclick="handleSendImmersive()" class="rog-button px-6 rounded-xl font-orbitron text-[10px] font-bold">INVIO</button>
+        </div>
+    </div>
+
+    <!-- Feed Video -->
+    <div id="input-video-container">
+        <div id="user-badge" class="identity-badge hidden">Mario</div>
+        <video id="input-video" autoplay playsinline muted></video>
+        <canvas id="snapshot-canvas" class="hidden"></canvas>
+    </div>
+
+    <header class="p-6 flex justify-between items-center border-b border-white/10 z-30 bg-black/95">
+        <div class="flex flex-col">
+            <h1 class="font-orbitron text-2xl text-red-600 font-bold tracking-tighter uppercase">Mario Bot v10.0</h1>
+            <div class="flex gap-2 mt-2"><span id="engine-status" class="px-3 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-[10px] font-orbitron text-red-500 uppercase tracking-widest text-center">Avatar Pro Plus</span></div>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="toggleImmersiveMode()" class="p-3 glass-panel rounded-2xl hover:text-red-600 transition-all"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg></button>
+            <button onclick="toggleCamera()" class="p-3 glass-panel rounded-2xl hover:text-red-600 transition-all" id="cam-toggle-btn"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
+            <button onclick="toggleGallery()" class="p-3 glass-panel rounded-2xl hover:text-red-600 transition-all"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></button>
+            <button onclick="toggleSettings()" class="p-3 glass-panel rounded-2xl hover:scale-110 transition-all"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /></svg></button>
+        </div>
+    </header>
+
+    <main id="canvas-container">
+        <div id="bg-image-layer"></div>
+        <div id="loader-overlay" class="loading-overlay">
+            <div class="flex flex-col items-center gap-4">
+                <div class="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                <span class="font-orbitron text-xs text-red-600 uppercase tracking-widest">Caricamento Asset...</span>
+            </div>
+        </div>
+    </main>
+
+    <div id="main-chat-container">
+        <div id="chat-box" class="scrollbar-hide"></div>
+        <div class="p-6 bg-black/80 border-t border-white/10 flex flex-col gap-4">
+            <div class="flex items-center gap-4">
+                <button id="mic-btn" onclick="toggleContinuousMic()" class="p-5 rounded-full bg-white/5 border border-white/10 transition-all"><svg id="mic-icon" xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-20a3 3 0 00-3 3v8a3 3 0 006 0V5a3 3 0 00-3-3z" /></svg></button>
+                <div class="flex-1 flex gap-3"><input type="text" id="user-input" placeholder="Parla con l'avatar..." class="flex-1 bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-lg outline-none focus:border-primary transition-all" onkeypress="if(event.key === 'Enter') handleSend()"><button onclick="handleSend()" class="rog-button px-8 rounded-2xl font-orbitron text-xs font-bold">INVIO</button></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pannello Impostazioni -->
+    <div id="settings-panel" class="fixed inset-0 bg-black translate-x-full transition-transform duration-500 z-[2000] p-12 overflow-y-auto pb-32">
+        <div class="flex justify-between items-center mb-12"><h2 class="font-orbitron text-3xl text-red-600 tracking-tighter uppercase">Configurazione Bot</h2><button onclick="toggleSettings(); window.saveSettings();" class="text-white hover:text-red-600 text-sm font-orbitron uppercase tracking-widest">Chiudi & Salva</button></div>
+        <div class="space-y-10 max-w-md mx-auto">
+            
+            <div class="p-6 border border-red-600/20 rounded-3xl bg-red-600/5 space-y-4">
+                <label class="block text-xs uppercase text-red-600 font-orbitron tracking-widest font-bold">3D Avatar Loader (GLB/GLTF)</label>
+                <p class="text-[10px] text-gray-400 font-inter">Carica un modello 3D esterno. Le luci rosse verranno disattivate per preservare i colori originali del file.</p>
+                <input type="file" id="avatar-upload" accept=".glb,.gltf" onchange="handleAvatarUpload(event)">
+                <button onclick="resetAvatar()" class="text-[9px] font-orbitron text-gray-500 hover:text-red-600 uppercase transition-all">Torna all'Avatar Standard</button>
+            </div>
+
+            <div class="space-y-4"><label class="block text-xs uppercase text-gray-500 font-orbitron tracking-widest">Gemini API Key</label><input type="password" id="api-key-input" placeholder="Inserisci chiave..."></div>
+            <div class="space-y-4"><label class="block text-xs uppercase text-red-600 font-orbitron tracking-widest font-bold">Istruzioni Extra</label><textarea id="extra-instructions" rows="4" placeholder="Regole di comportamento..."></textarea></div>
+            <div class="space-y-4">
+                <label class="block text-xs uppercase text-gray-500 font-orbitron tracking-widest">Motore AI</label>
+                <select id="engine-select" onchange="window.checkCustomEngine(this.value)">
+                    <option value="gemini-2.5-flash-preview-09-2025">Gemini 2.5 Flash (Consigliato)</option>
+                    <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash</option>
+                    <option value="custom">-- Custom Model ID --</option>
+                </select>
+            </div>
+            <div id="custom-engine-box" class="space-y-4 hidden animate-pulse"><label class="block text-red-500 font-bold font-orbitron text-xs tracking-widest uppercase">Custom Model ID</label><input type="text" id="custom-engine-id" placeholder="ID modello..."></div>
+            <div class="p-8 border border-white/5 rounded-3xl bg-white/5 font-orbitron text-[11px] space-y-3"><p class="text-red-600 font-bold uppercase tracking-widest">Log di Sistema:</p><p id="system-log-status">- Cloud Sync: Active</p><p id="face-stat">- Face Confidence: 0.0</p><p id="avatar-stat">- Avatar Status: Default</p></div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = "";
+        let isTalking = false, isSpeaking = false, isCameraActive = false, isContinuousMic = false, isRecording = false;
+        let scene, camera, renderer, head, eyes = [];
+        let hemiLight, redLight;
+        let targetRot = { x: 0, y: 0 }, currentRot = { x: 0, y: 0 }, currentZoom = 1.0;
+        let isPersonPresent = false, lastFaceSeenTime = 0, identifiedUser = "Mario";
+        let faceMesh, cameraHelper; 
+        let isCustomAvatar = false;
+        const GREETING_COOLDOWN = 60000; 
+
+        // --- INIZIALIZZA LE VOCI DEL BROWSER IN ANTICIPO ---
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+        }
+
+        // --- VARIABILI MODULO AUTO-BLINK ---
+        let blinkIntensity = 0; 
+        let isBlinking = false;
+        let nextBlinkTime = 0;
+        let blinkDuration = 120; // ms
+        let morphTargetMeshes = []; // Cache per mesh con blend shapes nel GLB
+
+        const marioSystemPrompt = `Sei l'avatar Cyberpunk di Mario. MEMORIA: Conosci Mario (proprietario), Silvia (moglie), Greta (figlia). HARDWARE: i7-14700K, PowerColor RX 9070 XT Red Devil, Samsung OLED G8. REGOLA: Non citare info hardware/famiglia se non richiesto. Sii umano e ironico. Max 12 parole.`;
+
+        window.checkCustomEngine = (v) => { document.getElementById('custom-engine-box').classList.toggle('hidden', v !== 'custom'); };
+        function getEffectiveApiKey() { return document.getElementById('api-key-input').value || apiKey; }
+        function getSelectedModel() { const v = document.getElementById('engine-select').value; return v === 'custom' ? (document.getElementById('custom-engine-id').value || 'gemini-2.5-flash-preview-09-2025') : v; }
+        function getExtraInstructions() { return document.getElementById('extra-instructions').value; }
+
+        function toggleGallery() { document.getElementById('bg-gallery').classList.toggle('active'); }
+        function setBackground(url) { 
+            const layer = document.getElementById('bg-image-layer'); 
+            const container = document.getElementById('canvas-container'); 
+            if (url === '') { 
+                layer.style.opacity = '0'; 
+                layer.style.backgroundImage = 'none'; 
+                container.style.background = 'radial-gradient(circle at center, #1a1a1a 0%, #000 100%)'; 
+            } else { 
+                layer.style.backgroundImage = `url('${url}')`; 
+                layer.style.opacity = '1'; 
+                container.style.background = '#000'; 
+            } 
+            if (document.getElementById('bg-gallery').classList.contains('active')) toggleGallery(); 
+        }
+
+        function uploadBackground(event) { const file = event.target.files[0]; if (file) { const reader = new FileReader(); reader.onload = (e) => setBackground(e.target.result); reader.readAsDataURL(file); } }
+
+        async function toggleImmersiveMode() { 
+            try { 
+                if (!document.fullscreenElement) { 
+                    await document.documentElement.requestFullscreen?.() || document.documentElement.webkitRequestFullscreen?.(); 
+                    document.body.classList.add('immersive-active'); 
+                } else { 
+                    await document.exitFullscreen?.() || document.webkitExitFullscreen?.(); 
+                    document.body.classList.remove('immersive-active'); 
+                } 
+            } catch (e) { 
+                document.body.classList.toggle('immersive-active'); 
+            } 
+            setTimeout(() => { 
+                const c = document.getElementById('canvas-container'); 
+                if (renderer) { 
+                    renderer.setSize(c.clientWidth, c.clientHeight); 
+                    camera.aspect = c.clientWidth / c.clientHeight; 
+                    camera.updateProjectionMatrix(); 
+                } 
+            }, 400); 
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition(); 
+            recognition.continuous = false; 
+            recognition.lang = 'it-IT';
+            recognition.onstart = () => { 
+                isRecording = true; 
+                document.getElementById('mic-btn').classList.add('live-active'); 
+                document.getElementById('mic-btn-fs').classList.add('live-active'); 
+            };
+            recognition.onresult = (e) => { 
+                if (isTalking) return; 
+                const transcript = e.results[0][0].transcript; 
+                document.getElementById('user-input').value = transcript; 
+                document.getElementById('user-input-fs').value = transcript; 
+                handleSend(); 
+            };
+            recognition.onend = () => { 
+                isRecording = false; 
+                document.getElementById('mic-btn').classList.remove('live-active'); 
+                document.getElementById('mic-btn-fs').classList.remove('live-active'); 
+                if (isContinuousMic && !isTalking && !isRecording) setTimeout(safeStart, 800); 
+            };
+        }
+
+        function safeStart() { if (!recognition || isRecording || isTalking) return; try { recognition.start(); } catch (e) {} }
+        function toggleContinuousMic() { isContinuousMic = !isContinuousMic; if (isContinuousMic) safeStart(); else if (recognition) recognition.stop(); }
+
+        function init3D() { 
+            const container = document.getElementById('canvas-container'); 
+            scene = new THREE.Scene(); 
+            camera = new THREE.PerspectiveCamera(35, container.clientWidth / container.clientHeight, 0.1, 1000); 
+            camera.position.set(0, 0, 6); 
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); 
+            renderer.setSize(container.clientWidth, container.clientHeight); 
+            renderer.setPixelRatio(window.devicePixelRatio); 
+            container.appendChild(renderer.domElement); 
+            
+            hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+            scene.add(hemiLight); 
+
+            redLight = new THREE.PointLight(0xff003c, 18, 20); 
+            redLight.position.set(3, 3, 5); 
+            scene.add(redLight); 
+            
+            createAvatar(); 
+            animate(); 
+            initFaceTracking(); 
+            makeDraggable(document.getElementById("input-video-container")); 
+            
+            container.addEventListener('wheel', (e) => { 
+                currentZoom += e.deltaY * -0.001; 
+                currentZoom = Math.min(Math.max(0.2, currentZoom), 5.0); 
+                if (head) head.scale.set(currentZoom, currentZoom, currentZoom); 
+            }, { passive: false }); 
+        }
+
+        function createAvatar() { 
+            if(head) scene.remove(head); 
+            isCustomAvatar = false;
+            morphTargetMeshes = [];
+            updateLighting();
+
+            head = new THREE.Group(); 
+            const headMat = new THREE.MeshPhongMaterial({ color: 0x666666, wireframe: true, transparent: true, opacity: 0.85 }); 
+            const skull = new THREE.Mesh(new THREE.IcosahedronGeometry(1.5, 2), headMat); 
+            head.add(skull); 
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00f2ff }); 
+            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), eyeMat); 
+            eyeL.position.set(-0.5, 0.4, 1.2); 
+            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), eyeMat); 
+            eyeR.position.set(0.5, 0.4, 1.2); 
+            head.add(eyeL); head.add(eyeR); 
+            eyes = [eyeL, eyeR]; 
+            head.scale.set(currentZoom, currentZoom, currentZoom); 
+            scene.add(head); 
+        }
+
+        function updateLighting() {
+            if (isCustomAvatar) {
+                if(redLight) redLight.visible = false;
+                if(hemiLight) hemiLight.intensity = 3.0; // Molta luce per vedere i colori originali
+            } else {
+                if(redLight) redLight.visible = true;
+                if(hemiLight) hemiLight.intensity = 1.2;
+            }
+        }
+
+        function handleAvatarUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const loader = new THREE.GLTFLoader();
+            const reader = new FileReader();
+            const overlay = document.getElementById('loader-overlay');
+            overlay.classList.add('active');
+            reader.onload = function(e) {
+                const contents = e.target.result;
+                loader.parse(contents, '', (gltf) => {
+                    if (head) scene.remove(head);
+                    head = gltf.scene;
+                    
+                    // Configurazione Luci Avatar Personalizzato
+                    isCustomAvatar = true;
+                    updateLighting();
+
+                    const box = new THREE.Box3().setFromObject(head);
+                    const center = box.getCenter(new THREE.Vector3());
+                    const size = box.getSize(new THREE.Vector3());
+                    const maxDim = Math.max(size.x, size.y, size.z);
+                    const scale = 2.5 / maxDim;
+                    head.scale.set(scale, scale, scale);
+                    head.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+                    
+                    // Disattiva eventuale wireframe forzato e caccia Morph Targets
+                    morphTargetMeshes = [];
+                    head.traverse((child) => {
+                        if (child.isMesh) {
+                            child.material.wireframe = false;
+                            // Cerca se ha blendshapes per gli occhi
+                            if (child.morphTargetDictionary) {
+                                morphTargetMeshes.push(child);
+                            }
+                        }
+                    });
+
+                    eyes = [];
+                    scene.add(head);
+                    overlay.classList.remove('active');
+                    document.getElementById('avatar-stat').innerText = "- Custom Avatar: " + file.name;
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function resetAvatar() { createAvatar(); document.getElementById('avatar-stat').innerText = "- Avatar Status: Default"; }
+
+        function initFaceTracking() { 
+            faceMesh = new FaceMesh({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`}); 
+            faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.4 }); 
+            faceMesh.onResults((res) => { 
+                const badge = document.getElementById('user-badge'); 
+                if (isCameraActive && res.multiFaceLandmarks?.[0]) { 
+                    const n = res.multiFaceLandmarks[0][1]; 
+                    targetRot.y = (n.x - 0.5) * -1.5; 
+                    targetRot.x = (n.y - 0.5) * 1; 
+                    document.getElementById('face-stat').innerText = `- Face Confidence: ${(res.multiFaceLandmarks[0][0].visibility || 0.8).toFixed(2)}`;
+                    if (!isPersonPresent) { isPersonPresent = true; if(identifiedUser) badge.classList.remove('hidden'); handlePersonAppeared(); } 
+                } else { if (isPersonPresent) { isPersonPresent = false; lastFaceSeenTime = Date.now(); badge.classList.add('hidden'); } } 
+            }); 
+        }
+
+        async function handlePersonAppeared() { if (Date.now() - lastFaceSeenTime > GREETING_COOLDOWN) await identifyFace(); }
+
+        async function identifyFace() {
+            const v = document.getElementById('input-video'); const c = document.getElementById('snapshot-canvas'); const ctx = c.getContext('2d'); c.width = 640; c.height = 480; ctx.drawImage(v, 0, 0, 640, 480); const base64 = c.toDataURL('image/png').split(',')[1];
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getSelectedModel()}:generateContent?key=${getEffectiveApiKey()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: "Riconoscimento: Uomo=Mario, Donna=Silvia, Bambina=Greta. Saluta SOLAMENTE col nome." }, { inlineData: { mimeType: "image/png", data: base64 } }] }] }) });
+                const d = await res.json(); const text = d.candidates[0].content.parts[0].text;
+                identifiedUser = text.toLowerCase().includes("silvia") ? "Silvia" : (text.toLowerCase().includes("greta") ? "Greta" : "Mario");
+                const badge = document.getElementById('user-badge'); badge.innerText = identifiedUser; if(isPersonPresent) badge.classList.remove('hidden');
+                addChatMessage('AI', text, 'ai'); playTTS(text);
+            } catch (e) {}
+        }
+
+        async function toggleCamera() { 
+            const v = document.getElementById('input-video'); 
+            if (!isCameraActive) { 
+                if (!cameraHelper) cameraHelper = new Camera(v, { onFrame: async () => { if(isCameraActive) await faceMesh.send({image: v}); }, width: 640, height: 480 }); 
+                await cameraHelper.start(); isCameraActive = true; 
+                document.getElementById('input-video-container').style.display = 'block'; 
+                document.getElementById('cam-toggle-btn').classList.add('bg-red-600/20'); 
+            } else { isCameraActive = false; document.getElementById('input-video-container').style.display = 'none'; document.getElementById('cam-toggle-btn').classList.remove('bg-red-600/20'); } 
+        }
+
+        // --- MODULO FUNZIONALE AUTO-BLINK ---
+        function updateBlinkingLogic() {
+            const now = Date.now();
+            
+            // Gestione tempistica lampeggio
+            if (now > nextBlinkTime) {
+                isBlinking = true;
+                // Prossimo battito tra 3 e 6 secondi
+                nextBlinkTime = now + 3000 + Math.random() * 3000; 
+                // Il battito finisce dopo blinkDuration
+                setTimeout(() => { isBlinking = false; }, blinkDuration);
+            }
+
+            // Interpolazione intensità per fluidità
+            const targetIntensity = isBlinking ? 1.0 : 0.0;
+            blinkIntensity = THREE.MathUtils.lerp(blinkIntensity, targetIntensity, 0.4);
+
+            // Applicazione all'Avatar Procedurale (Scale degli occhi)
+            if (eyes && eyes.length > 0) {
+                eyes.forEach(e => {
+                    // Mantiene la scala X/Z ma schiaccia la Y
+                    const currentScale = isSpeaking ? (1 + Math.sin(Date.now() * 0.04) * 0.3) : 1;
+                    e.scale.set(currentScale, currentScale * (1 - blinkIntensity), currentScale);
+                });
+            }
+
+            // Applicazione all'Avatar GLB (Morph Targets / Blend Shapes)
+            if (isCustomAvatar && morphTargetMeshes.length > 0) {
+                morphTargetMeshes.forEach(mesh => {
+                    // Cerca nomi comuni per il battito ciglia nel dizionario del modello
+                    const blinkKeys = ['eyeBlinkLeft', 'eyeBlinkRight', 'Blink', 'blink_left', 'blink_right', 'Eyes_Closed'];
+                    blinkKeys.forEach(key => {
+                        const index = mesh.morphTargetDictionary[key];
+                        if (index !== undefined) {
+                            mesh.morphTargetInfluences[index] = blinkIntensity;
+                        }
+                    });
+                });
+            }
+        }
+
+        function animate() { 
+            requestAnimationFrame(animate); 
+            
+            // Esegui logica Auto-Blink
+            updateBlinkingLogic();
+
+            if (head) { 
+                currentRot.x = THREE.MathUtils.lerp(currentRot.x, targetRot.x, 0.1); 
+                currentRot.y = THREE.MathUtils.lerp(currentRot.y, targetRot.y, 0.1); 
+                head.rotation.y = currentRot.y; head.rotation.x = currentRot.x; 
+                head.position.y += Math.sin(Date.now() * 0.001) * 0.0005; 
+            } 
+            
+            // Nota: La logica originale eyes.scale è stata integrata nel modulo updateBlinkingLogic 
+            // per evitare sovrascritture di stato e garantire fluidità tra parlato e battito ciglia.
+
+            if (renderer && scene && camera) renderer.render(scene, camera); 
+        }
+
+        async function handleSend() { const input = document.getElementById('user-input'); const text = input.value.trim(); if (!text) return; isTalking = true; if (recognition) recognition.stop(); addChatMessage('USER', text, 'user'); input.value = ''; processAI(text); }
+        async function handleSendImmersive() { const input = document.getElementById('user-input-fs'); const text = input.value.trim(); if (!text) return; isTalking = true; if (recognition) recognition.stop(); addChatMessage('USER', text, 'user'); input.value = ''; processAI(text); }
+        
+        async function processAI(text) { 
+            const prompt = `${marioSystemPrompt}\nEXTRA: ${getExtraInstructions()}`; 
+            try { 
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getSelectedModel()}:generateContent?key=${getEffectiveApiKey()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: text }] }], systemInstruction: { parts: [{ text: prompt }] } }) }); 
+                const d = await res.json(); const reply = d.candidates?.[0]?.content?.parts?.[0]?.text || "..."; 
+                addChatMessage('AI', reply, 'ai'); playTTS(reply); 
+            } catch (e) { isTalking = false; if (isContinuousMic) safeStart(); } 
+        }
+
+        // --- MOTORE TTS BROWSER (GRATUITO) ---
+        function playTTS(text) { 
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    isTalking = true; 
+    isSpeaking = true;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'it-IT';
+    utterance.rate = 0.9; // Più calma e naturale
+    utterance.pitch = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+        // Cerchiamo Elsa Online (Natural) - La voce più umana di Edge
+        const elsaOnline = voices.find(v => v.name.includes('Microsoft Elsa Online (Natural) - Italian (Italy)')) ||
+                           voices.find(v => v.name.includes('Elsa')) ||
+                           voices.find(v => v.lang.includes('it'));
+        
+        if (elsaOnline) utterance.voice = elsaOnline;
+    utterance.onend = () => { isSpeaking = false; isTalking = false; if (isContinuousMic) safeStart(); };
+    window.speechSynthesis.speak(utterance);
+}
+
+// Forza il caricamento delle voci all'avvio
+if ('speechSynthesis' in window) {
+    window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+    };
+}
+
+function addChatMessage(sender, text, type) { 
+            const box = document.getElementById('chat-box'); 
+            const div = document.createElement('div'); 
+            div.className = `chat-msg ${type}`; 
+            div.innerHTML = `<span class="font-orbitron font-bold text-[10px] block uppercase mb-1 tracking-widest">${sender}</span><p>${text}</p>`; 
+            box.appendChild(div); box.scrollTop = box.scrollHeight; 
+
+            // Aggiunta alla cronologia immersiva (nuvolette a sinistra)
+            const hist = document.getElementById('immersive-history');
+            const hDiv = document.createElement('div');
+            hDiv.className = `hist-msg ${type}`;
+            hDiv.innerText = text;
+            hist.appendChild(hDiv);
+            setTimeout(() => { hist.scrollTop = hist.scrollHeight; }, 100);
+        }
+
+        function toggleSettings() { document.getElementById('settings-panel').classList.toggle('translate-x-full'); }
+        function makeDraggable(el) { let p1 = 0, p2 = 0, p3 = 0, p4 = 0; el.onmousedown = dragStart; el.ontouchstart = dragStart; function dragStart(e) { p3 = e.clientX || (e.touches ? e.touches[0].clientX : 0); p4 = e.clientY || (e.touches ? e.touches[0].clientY : 0); document.onmouseup = dragEnd; document.ontouchend = dragEnd; document.onmousemove = dragging; document.ontouchmove = dragging; } function dragging(e) { let cx = e.clientX || (e.touches ? e.touches[0].clientX : 0); let cy = e.clientY || (e.touches ? e.touches[0].clientY : 0); p1 = p3 - cx; p2 = p4 - cy; p3 = cx; p4 = cy; el.style.top = (el.offsetTop - p2) + "px"; el.style.left = (el.offsetLeft - p1) + "px"; } function dragEnd() { document.onmouseup = null; document.onmousemove = null; document.ontouchend = null; document.ontouchmove = null; } }
+        
+        window.onload = () => { init3D(); setBackground(''); }; 
+        window.onresize = () => { 
+            const c = document.getElementById('canvas-container'); 
+            if(renderer) renderer.setSize(c.clientWidth, c.clientHeight); 
+            if(camera) { camera.aspect = c.clientWidth / c.clientHeight; camera.updateProjectionMatrix(); } 
+        };
+    </script>
+</body>
+</html>
