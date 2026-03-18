@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mario Bot v10.0 - Custom Avatar Edition</title>
+    <title>Mario Bot v10.5 - Custom Avatar Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -11,6 +11,9 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
     
     <script type="module">
+        // Inizializza array profili globalmente
+        window.userVisualProfiles = [ {image: ''}, {image: ''}, {image: ''} ];
+
         // --- LOGICA DI SALVATAGGIO LOCALE ---
         window.saveSettings = () => {
             const log = document.getElementById('system-log-status');
@@ -18,9 +21,13 @@
             
             const settings = {
                 apiKey: document.getElementById('api-key-input').value,
-                engine: document.getElementById('engine-select').value,
-                customEngineId: document.getElementById('custom-engine-id').value,
-                extraInstructions: document.getElementById('extra-instructions').value
+                engine: document.getElementById('engine-input').value,
+                extraInstructions: document.getElementById('extra-instructions').value,
+                ttsVoice: document.getElementById('tts-voice-select').value,
+                profiles: window.userVisualProfiles.map((p, i) => ({
+                    name: document.getElementById(`prof-name-${i+1}`).value,
+                    image: p.image
+                }))
             };
 
             try {
@@ -30,7 +37,7 @@
                     if(log.innerText.includes("dispositivo")) log.innerText = "- Local Storage: Active"; 
                 }, 3000);
             } catch (e) {
-                log.innerText = "- Errore salvataggio locale.";
+                log.innerText = "- Errore salvataggio locale (forse foto troppo grandi).";
             }
         };
 
@@ -39,12 +46,28 @@
             if (saved) {
                 const data = JSON.parse(saved);
                 document.getElementById('api-key-input').value = data.apiKey || "";
-                document.getElementById('engine-select').value = data.engine || "gemini-2.0-flash-exp";
-                document.getElementById('custom-engine-id').value = data.customEngineId || "";
+                document.getElementById('engine-input').value = data.engine || "";
                 document.getElementById('extra-instructions').value = data.extraInstructions || "";
                 
-                if(window.checkCustomEngine) window.checkCustomEngine(data.engine);
                 document.getElementById('system-log-status').innerText = "- Local Storage: Active";
+                
+                // Imposta la voce TTS se esiste
+                if(data.ttsVoice && document.getElementById('tts-voice-select')) {
+                    setTimeout(() => { document.getElementById('tts-voice-select').value = data.ttsVoice; }, 500);
+                }
+
+                // Carica i profili visivi
+                if (data.profiles && data.profiles.length === 3) {
+                    window.userVisualProfiles = data.profiles;
+                    window.userVisualProfiles.forEach((p, i) => {
+                        document.getElementById(`prof-name-${i+1}`).value = p.name || '';
+                        if (p.image) {
+                            document.getElementById(`prof-img-${i+1}`).src = 'data:image/jpeg;base64,' + p.image;
+                            document.getElementById(`prof-img-${i+1}`).style.display = 'block';
+                            document.getElementById(`prof-img-placeholder-${i+1}`).style.display = 'none';
+                        }
+                    });
+                }
             }
         };
 
@@ -164,14 +187,15 @@
 
     <!-- Feed Video -->
     <div id="input-video-container">
-        <div id="user-badge" class="identity-badge hidden">Mario</div>
+        <!-- Badge Reso neutro -->
+        <div id="user-badge" class="identity-badge hidden">LIVE</div>
         <video id="input-video" autoplay playsinline muted></video>
         <canvas id="snapshot-canvas" class="hidden"></canvas>
     </div>
 
     <header class="p-6 flex justify-between items-center border-b border-white/10 z-30 bg-black/95">
         <div class="flex flex-col">
-            <h1 class="font-orbitron text-2xl text-red-600 font-bold tracking-tighter uppercase">Mario Bot v10.0</h1>
+            <h1 class="font-orbitron text-2xl text-red-600 font-bold tracking-tighter uppercase">Mario Bot v10.5</h1>
             <div class="flex gap-2 mt-2"><span id="engine-status" class="px-3 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-[10px] font-orbitron text-red-500 uppercase tracking-widest text-center">Avatar Pro Plus</span></div>
         </div>
         <div class="flex gap-3">
@@ -214,17 +238,62 @@
                 <button onclick="resetAvatar()" class="text-[9px] font-orbitron text-gray-500 hover:text-red-600 uppercase transition-all">Torna all'Avatar Standard</button>
             </div>
 
-            <div class="space-y-4"><label class="block text-xs uppercase text-gray-500 font-orbitron tracking-widest">Gemini API Key</label><input type="password" id="api-key-input" placeholder="Inserisci chiave..."></div>
-            <div class="space-y-4"><label class="block text-xs uppercase text-red-600 font-orbitron tracking-widest font-bold">Istruzioni Extra</label><textarea id="extra-instructions" rows="4" placeholder="Regole di comportamento..."></textarea></div>
+            <!-- NUOVA SEZIONE PROFILI FOTOGRAFICI -->
             <div class="space-y-4">
-                <label class="block text-xs uppercase text-gray-500 font-orbitron tracking-widest">Motore AI</label>
-                <select id="engine-select" onchange="window.checkCustomEngine(this.value)">
-                    <option value="gemini-2.5-flash-preview-09-2025">Gemini 2.5 Flash (Consigliato)</option>
-                    <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash</option>
-                    <option value="custom">-- Custom Model ID --</option>
+                <label class="block text-xs uppercase text-red-600 font-orbitron tracking-widest font-bold">Profili Visivi (Riconoscimento)</label>
+                <p class="text-[10px] text-gray-400 font-inter">Inserisci il nome e carica una foto. L'IA la userà per riconoscerti dalla webcam.</p>
+                
+                <div class="flex flex-col gap-3">
+                    <!-- PROFILO 1 -->
+                    <div class="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/10">
+                        <div class="relative w-12 h-12 shrink-0">
+                            <img id="prof-img-1" src="" class="w-full h-full rounded-full object-cover border border-white/20" style="display:none;">
+                            <div id="prof-img-placeholder-1" class="w-full h-full rounded-full bg-black/50 border border-white/20 flex items-center justify-center text-xs text-gray-500">+</div>
+                        </div>
+                        <input type="text" id="prof-name-1" placeholder="Nome Profilo 1..." class="flex-1 bg-transparent border-none text-sm outline-none p-0 text-white placeholder-gray-600">
+                        <input type="file" id="prof-upload-1" accept="image/*" class="hidden" onchange="window.handleProfileUpload(event, 1)">
+                        <label for="prof-upload-1" class="rog-button px-3 py-2 rounded-lg text-[10px] font-bold cursor-pointer shrink-0">FOTO</label>
+                    </div>
+
+                    <!-- PROFILO 2 -->
+                    <div class="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/10">
+                        <div class="relative w-12 h-12 shrink-0">
+                            <img id="prof-img-2" src="" class="w-full h-full rounded-full object-cover border border-white/20" style="display:none;">
+                            <div id="prof-img-placeholder-2" class="w-full h-full rounded-full bg-black/50 border border-white/20 flex items-center justify-center text-xs text-gray-500">+</div>
+                        </div>
+                        <input type="text" id="prof-name-2" placeholder="Nome Profilo 2..." class="flex-1 bg-transparent border-none text-sm outline-none p-0 text-white placeholder-gray-600">
+                        <input type="file" id="prof-upload-2" accept="image/*" class="hidden" onchange="window.handleProfileUpload(event, 2)">
+                        <label for="prof-upload-2" class="rog-button px-3 py-2 rounded-lg text-[10px] font-bold cursor-pointer shrink-0">FOTO</label>
+                    </div>
+
+                    <!-- PROFILO 3 -->
+                    <div class="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/10">
+                        <div class="relative w-12 h-12 shrink-0">
+                            <img id="prof-img-3" src="" class="w-full h-full rounded-full object-cover border border-white/20" style="display:none;">
+                            <div id="prof-img-placeholder-3" class="w-full h-full rounded-full bg-black/50 border border-white/20 flex items-center justify-center text-xs text-gray-500">+</div>
+                        </div>
+                        <input type="text" id="prof-name-3" placeholder="Nome Profilo 3..." class="flex-1 bg-transparent border-none text-sm outline-none p-0 text-white placeholder-gray-600">
+                        <input type="file" id="prof-upload-3" accept="image/*" class="hidden" onchange="window.handleProfileUpload(event, 3)">
+                        <label for="prof-upload-3" class="rog-button px-3 py-2 rounded-lg text-[10px] font-bold cursor-pointer shrink-0">FOTO</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-4"><label class="block text-xs uppercase text-gray-500 font-orbitron tracking-widest">Gemini API Key</label><input type="password" id="api-key-input" placeholder="Inserisci chiave..."></div>
+            <div class="space-y-4"><label class="block text-xs uppercase text-red-600 font-orbitron tracking-widest font-bold">Istruzioni Extra (Contesto)</label><textarea id="extra-instructions" rows="4" placeholder="Scrivi qui chi sei, info sulla famiglia, sul PC e regole di comportamento per l'IA..."></textarea></div>
+            
+            <div class="space-y-4">
+                <label class="block text-xs uppercase text-gray-500 font-orbitron tracking-widest">ID Motore AI (Cervello)</label>
+                <input type="text" id="engine-input" placeholder="Inserisci l'ID del modello (es. gemini-2.5-flash)...">
+            </div>
+            
+            <div class="space-y-4">
+                <label class="block text-xs uppercase text-gray-500 font-orbitron tracking-widest">Voce TTS (Browser)</label>
+                <select id="tts-voice-select">
+                    <option value="auto">-- Automatica (Migliore Naturale) --</option>
                 </select>
             </div>
-            <div id="custom-engine-box" class="space-y-4 hidden animate-pulse"><label class="block text-red-500 font-bold font-orbitron text-xs tracking-widest uppercase">Custom Model ID</label><input type="text" id="custom-engine-id" placeholder="ID modello..."></div>
+
             <div class="p-8 border border-white/5 rounded-3xl bg-white/5 font-orbitron text-[11px] space-y-3"><p class="text-red-600 font-bold uppercase tracking-widest">Log di Sistema:</p><p id="system-log-status">- Cloud Sync: Active</p><p id="face-stat">- Face Confidence: 0.0</p><p id="avatar-stat">- Avatar Status: Default</p></div>
         </div>
     </div>
@@ -235,14 +304,89 @@
         let scene, camera, renderer, head, eyes = [];
         let hemiLight, redLight;
         let targetRot = { x: 0, y: 0 }, currentRot = { x: 0, y: 0 }, currentZoom = 1.0;
-        let isPersonPresent = false, lastFaceSeenTime = 0, identifiedUser = "Mario";
+        let isPersonPresent = false, lastFaceSeenTime = 0;
         let faceMesh, cameraHelper; 
         let isCustomAvatar = false;
         const GREETING_COOLDOWN = 60000; 
 
-        // --- INIZIALIZZA LE VOCI DEL BROWSER IN ANTICIPO ---
+        // --- GESTIONE UPLOAD PROFILI FOTOGRAFICI CON RIDIMENSIONAMENTO AUTOMATICO ---
+        window.handleProfileUpload = (event, index) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    // Ridimensiona immagine a max 300x300 per non saturare la memoria locale
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const MAX_SIZE = 300;
+                    let width = img.width; 
+                    let height = img.height;
+                    
+                    if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } 
+                    else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+                    
+                    canvas.width = width; 
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // Comprimi in formato JPEG
+                    const base64 = canvas.toDataURL('image/jpeg', 0.8);
+                    
+                    // Aggiorna array globale e UI
+                    window.userVisualProfiles[index - 1].image = base64.split(',')[1];
+                    document.getElementById(`prof-img-${index}`).src = base64;
+                    document.getElementById(`prof-img-${index}`).style.display = 'block';
+                    document.getElementById(`prof-img-placeholder-${index}`).style.display = 'none';
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        // --- INIZIALIZZA E POPOLA LE VOCI DEL BROWSER ---
+        function populateVoiceList() {
+            if (!('speechSynthesis' in window)) return;
+            const voices = window.speechSynthesis.getVoices();
+            const voiceSelect = document.getElementById('tts-voice-select');
+            
+            // Salva il valore corrente per ripristinarlo
+            const savedSettingsStr = localStorage.getItem('mario_bot_settings');
+            let savedVoice = "auto";
+            if (savedSettingsStr) {
+                const data = JSON.parse(savedSettingsStr);
+                if (data.ttsVoice) savedVoice = data.ttsVoice;
+            }
+
+            voiceSelect.innerHTML = '<option value="auto">-- Automatica (Migliore Naturale) --</option>';
+            
+            // Filtra le voci italiane
+            const itVoices = voices.filter(v => v.lang.includes('it'));
+            
+            itVoices.forEach((voice) => {
+                const option = document.createElement('option');
+                option.value = voice.voiceURI;
+                
+                let label = voice.name;
+                // Evidenzia visivamente le voci migliori (Edge e Chrome)
+                if (label.includes('Natural') || label.includes('Online')) {
+                    label = '🌟 ' + label + ' (Edge/Naturale)';
+                } else if (label.includes('Google')) {
+                    label = '⭐ ' + label + ' (Chrome)';
+                }
+                
+                option.textContent = label;
+                voiceSelect.appendChild(option);
+            });
+
+            voiceSelect.value = savedVoice;
+        }
+
         if ('speechSynthesis' in window) {
-            window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+            populateVoiceList();
+            window.speechSynthesis.onvoiceschanged = populateVoiceList;
         }
 
         // --- VARIABILI MODULO AUTO-BLINK ---
@@ -252,11 +396,11 @@
         let blinkDuration = 120; // ms
         let morphTargetMeshes = []; // Cache per mesh con blend shapes nel GLB
 
-        const marioSystemPrompt = `Sei l'avatar Cyberpunk di Mario. MEMORIA: Conosci Mario (proprietario), Silvia (moglie), Greta (figlia). HARDWARE: i7-14700K, PowerColor RX 9070 XT Red Devil, Samsung OLED G8. REGOLA: Non citare info hardware/famiglia se non richiesto. Sii umano e ironico. Max 12 parole.`;
+        // --- MODIFICA STILE IA ---
+        const baseSystemPrompt = `Sei un'IA avanzata, intelligente e amichevole. Il tuo stile di conversazione è brillante, articolato, empatico e professionale, esattamente come un assistente virtuale di altissimo livello. Fornisci risposte chiare, curate nei dettagli e discorsive, mantenendo un tono cordiale e disponibile. Essendo un avatar vocale, evita liste o formattazioni complesse (come markdown eccessivo) e prediligi un discorso fluido e naturale.`;
 
-        window.checkCustomEngine = (v) => { document.getElementById('custom-engine-box').classList.toggle('hidden', v !== 'custom'); };
         function getEffectiveApiKey() { return document.getElementById('api-key-input').value || apiKey; }
-        function getSelectedModel() { const v = document.getElementById('engine-select').value; return v === 'custom' ? (document.getElementById('custom-engine-id').value || 'gemini-2.5-flash-preview-09-2025') : v; }
+        function getSelectedModel() { return document.getElementById('engine-input').value; }
         function getExtraInstructions() { return document.getElementById('extra-instructions').value; }
 
         function toggleGallery() { document.getElementById('bg-gallery').classList.toggle('active'); }
@@ -446,22 +590,55 @@
                     targetRot.y = (n.x - 0.5) * -1.5; 
                     targetRot.x = (n.y - 0.5) * 1; 
                     document.getElementById('face-stat').innerText = `- Face Confidence: ${(res.multiFaceLandmarks[0][0].visibility || 0.8).toFixed(2)}`;
-                    if (!isPersonPresent) { isPersonPresent = true; if(identifiedUser) badge.classList.remove('hidden'); handlePersonAppeared(); } 
+                    if (!isPersonPresent) { isPersonPresent = true; badge.classList.remove('hidden'); handlePersonAppeared(); } 
                 } else { if (isPersonPresent) { isPersonPresent = false; lastFaceSeenTime = Date.now(); badge.classList.add('hidden'); } } 
             }); 
         }
 
         async function handlePersonAppeared() { if (Date.now() - lastFaceSeenTime > GREETING_COOLDOWN) await identifyFace(); }
 
+        // --- SISTEMA DI RICONOSCIMENTO FACCIALE MULTI-PROFILO ---
         async function identifyFace() {
-            const v = document.getElementById('input-video'); const c = document.getElementById('snapshot-canvas'); const ctx = c.getContext('2d'); c.width = 640; c.height = 480; ctx.drawImage(v, 0, 0, 640, 480); const base64 = c.toDataURL('image/png').split(',')[1];
+            const v = document.getElementById('input-video'); const c = document.getElementById('snapshot-canvas'); const ctx = c.getContext('2d'); c.width = 640; c.height = 480; ctx.drawImage(v, 0, 0, 640, 480); 
+            const webcamBase64 = c.toDataURL('image/jpeg', 0.8).split(',')[1];
+            
             try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getSelectedModel()}:generateContent?key=${getEffectiveApiKey()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: "Riconoscimento: Uomo=Mario, Donna=Silvia, Bambina=Greta. Saluta SOLAMENTE col nome." }, { inlineData: { mimeType: "image/png", data: base64 } }] }] }) });
+                // Costruzione del prompt multi-immagine
+                let promptParts = [
+                    { text: `Fase di riconoscimento visivo. Di seguito troverai delle FOTO PROFILO di riferimento associate ai loro NOMI. Subito dopo, troverai l'immagine attuale della WEBCAM. Confronta la webcam con le foto profilo. Se riconosci la persona, saluta calorosamente e con il tuo stile discorsivo ed empatico dicendo "Ciao [Nome]". Se non riconosci nessuno o la lista è vuota, saluta in modo cordiale e generico.` }
+                ];
+
+                // Aggiungi tutti i profili validati dall'utente nel prompt
+                let hasProfiles = false;
+                window.userVisualProfiles.forEach((p, index) => {
+                    const pName = document.getElementById(`prof-name-${index+1}`).value;
+                    if(pName && p.image) {
+                        hasProfiles = true;
+                        promptParts.push({ text: `[FOTO PROFILO DI RIFERIMENTO - NOME: ${pName}]` });
+                        promptParts.push({ inlineData: { mimeType: "image/jpeg", data: p.image } });
+                    }
+                });
+
+                if(!hasProfiles) {
+                    promptParts.push({ text: `(Nessun profilo di riferimento caricato dall'utente. Saluta l'utente genericamente basandoti solo sulle istruzioni di contesto: ${getExtraInstructions()})` });
+                }
+
+                promptParts.push({ text: `[IMMAGINE WEBCAM ATTUALE DA CONFRONTARE]` });
+                promptParts.push({ inlineData: { mimeType: "image/jpeg", data: webcamBase64 } });
+
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getSelectedModel()}:generateContent?key=${getEffectiveApiKey()}`, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ contents: [{ parts: promptParts }] }) 
+                });
+                
                 const d = await res.json(); const text = d.candidates[0].content.parts[0].text;
-                identifiedUser = text.toLowerCase().includes("silvia") ? "Silvia" : (text.toLowerCase().includes("greta") ? "Greta" : "Mario");
-                const badge = document.getElementById('user-badge'); badge.innerText = identifiedUser; if(isPersonPresent) badge.classList.remove('hidden');
+                
+                const badge = document.getElementById('user-badge'); badge.innerText = "LIVE"; if(isPersonPresent) badge.classList.remove('hidden');
                 addChatMessage('AI', text, 'ai'); playTTS(text);
-            } catch (e) {}
+            } catch (e) {
+                console.error("Errore nel riconoscimento facciale", e);
+            }
         }
 
         async function toggleCamera() { 
@@ -528,9 +705,6 @@
                 head.position.y += Math.sin(Date.now() * 0.001) * 0.0005; 
             } 
             
-            // Nota: La logica originale eyes.scale è stata integrata nel modulo updateBlinkingLogic 
-            // per evitare sovrascritture di stato e garantire fluidità tra parlato e battito ciglia.
-
             if (renderer && scene && camera) renderer.render(scene, camera); 
         }
 
@@ -538,7 +712,8 @@
         async function handleSendImmersive() { const input = document.getElementById('user-input-fs'); const text = input.value.trim(); if (!text) return; isTalking = true; if (recognition) recognition.stop(); addChatMessage('USER', text, 'user'); input.value = ''; processAI(text); }
         
         async function processAI(text) { 
-            const prompt = `${marioSystemPrompt}\nEXTRA: ${getExtraInstructions()}`; 
+            // Generazione del prompt unendo la base generica alle sole istruzioni fornite nel pannello impostazioni
+            const prompt = `${baseSystemPrompt}\nCONTESTO E ISTRUZIONI DELL'UTENTE (Seguile rigorosamente):\n${getExtraInstructions()}`; 
             try { 
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getSelectedModel()}:generateContent?key=${getEffectiveApiKey()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: text }] }], systemInstruction: { parts: [{ text: prompt }] } }) }); 
                 const d = await res.json(); const reply = d.candidates?.[0]?.content?.parts?.[0]?.text || "..."; 
@@ -546,36 +721,60 @@
             } catch (e) { isTalking = false; if (isContinuousMic) safeStart(); } 
         }
 
-        // --- MOTORE TTS BROWSER (GRATUITO) ---
+        // --- MOTORE TTS BROWSER (GRATUITO) CON SELEZIONE ---
         function playTTS(text) { 
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    isTalking = true; 
-    isSpeaking = true;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'it-IT';
-    utterance.rate = 0.9; // Più calma e naturale
-    utterance.pitch = 1.0;
+            if (!('speechSynthesis' in window)) {
+                console.warn("Sintesi vocale non supportata.");
+                isTalking = false;
+                if (isContinuousMic) safeStart();
+                return;
+            }
 
-    const voices = window.speechSynthesis.getVoices();
-        // Cerchiamo Elsa Online (Natural) - La voce più umana di Edge
-        const elsaOnline = voices.find(v => v.name.includes('Microsoft Elsa Online (Natural) - Italian (Italy)')) ||
-                           voices.find(v => v.name.includes('Elsa')) ||
-                           voices.find(v => v.lang.includes('it'));
+            // Ferma qualsiasi audio precedente
+            window.speechSynthesis.cancel();
+            
+            isTalking = true;
+            isSpeaking = true;
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'it-IT';
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+
+            const voices = window.speechSynthesis.getVoices();
+            const voiceSelect = document.getElementById('tts-voice-select');
+            const selectedVoiceURI = voiceSelect ? voiceSelect.value : "auto";
+
+            if (selectedVoiceURI !== "auto" && voices.length > 0) {
+                // Usa la voce specifica selezionata dall'utente
+                const chosenVoice = voices.find(v => v.voiceURI === selectedVoiceURI);
+                if (chosenVoice) utterance.voice = chosenVoice;
+            } else if (voices.length > 0) {
+                // Ricerca intelligente automatica (comportamento di default: prima Edge, poi Chrome, poi generica IT)
+                const bestVoice = voices.find(v => v.lang.includes('it') && (v.name.includes('Natural') || v.name.includes('Online'))) ||
+                                  voices.find(v => v.lang.includes('it') && v.name.includes('Google')) ||
+                                  voices.find(v => v.lang.includes('it'));
+                if (bestVoice) {
+                    utterance.voice = bestVoice;
+                }
+            }
+
+            utterance.onend = () => { 
+                isSpeaking = false; 
+                isTalking = false; 
+                if (isContinuousMic) safeStart(); 
+            };
+            
+            utterance.onerror = () => { 
+                isSpeaking = false; 
+                isTalking = false; 
+                if (isContinuousMic) safeStart(); 
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
         
-        if (elsaOnline) utterance.voice = elsaOnline;
-    utterance.onend = () => { isSpeaking = false; isTalking = false; if (isContinuousMic) safeStart(); };
-    window.speechSynthesis.speak(utterance);
-}
-
-// Forza il caricamento delle voci all'avvio
-if ('speechSynthesis' in window) {
-    window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.getVoices();
-    };
-}
-
-function addChatMessage(sender, text, type) { 
+        function addChatMessage(sender, text, type) { 
             const box = document.getElementById('chat-box'); 
             const div = document.createElement('div'); 
             div.className = `chat-msg ${type}`; 
