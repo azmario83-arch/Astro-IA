@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mario Bot v10.5 - Custom Avatar Edition</title>
+    <title>Mario Bot v10.7 - Custom Avatar Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -24,11 +24,16 @@
                 engine: document.getElementById('engine-input').value,
                 extraInstructions: document.getElementById('extra-instructions').value,
                 ttsVoice: document.getElementById('tts-voice-select').value,
+                botName: document.getElementById('bot-name-input').value,
                 profiles: window.userVisualProfiles.map((p, i) => ({
                     name: document.getElementById(`prof-name-${i+1}`).value,
                     image: p.image
                 }))
             };
+
+            // Aggiorna visivamente il titolo in tempo reale
+            const customName = document.getElementById('bot-name-input').value.trim();
+            document.getElementById('main-title').innerText = customName ? customName : "Mario Bot v10.7";
 
             try {
                 localStorage.setItem('mario_bot_settings', JSON.stringify(settings));
@@ -48,7 +53,12 @@
                 document.getElementById('api-key-input').value = data.apiKey || "";
                 document.getElementById('engine-input').value = data.engine || "";
                 document.getElementById('extra-instructions').value = data.extraInstructions || "";
+                document.getElementById('bot-name-input').value = data.botName || "";
                 
+                // Imposta visivamente il titolo se salvato
+                const customName = data.botName ? data.botName.trim() : "";
+                document.getElementById('main-title').innerText = customName ? customName : "Mario Bot v10.7";
+
                 document.getElementById('system-log-status').innerText = "- Local Storage: Active";
                 
                 // Imposta la voce TTS se esiste
@@ -187,7 +197,7 @@
 
     <!-- Feed Video -->
     <div id="input-video-container">
-        <!-- Badge Reso neutro -->
+        <!-- Badge Reso neutro/dinamico -->
         <div id="user-badge" class="identity-badge hidden">LIVE</div>
         <video id="input-video" autoplay playsinline muted></video>
         <canvas id="snapshot-canvas" class="hidden"></canvas>
@@ -195,7 +205,8 @@
 
     <header class="p-6 flex justify-between items-center border-b border-white/10 z-30 bg-black/95">
         <div class="flex flex-col">
-            <h1 class="font-orbitron text-2xl text-red-600 font-bold tracking-tighter uppercase">Mario Bot v10.5</h1>
+            <!-- TITOLO AGGIORNATO DINAMICAMENTE -->
+            <h1 id="main-title" class="font-orbitron text-2xl text-red-600 font-bold tracking-tighter uppercase">Mario Bot v10.7</h1>
             <div class="flex gap-2 mt-2"><span id="engine-status" class="px-3 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-[10px] font-orbitron text-red-500 uppercase tracking-widest text-center">Avatar Pro Plus</span></div>
         </div>
         <div class="flex gap-3">
@@ -237,11 +248,17 @@
                 <input type="file" id="avatar-upload" accept=".glb,.gltf" onchange="handleAvatarUpload(event)">
                 <button onclick="resetAvatar()" class="text-[9px] font-orbitron text-gray-500 hover:text-red-600 uppercase transition-all">Torna all'Avatar Standard</button>
             </div>
+            
+            <!-- CAMPO NOME BOT (INFLUENZA IL NOME AI IN CHAT) -->
+            <div class="space-y-4">
+                <label class="block text-xs uppercase text-gray-500 font-orbitron tracking-widest">Nome Assistente / Bot</label>
+                <input type="text" id="bot-name-input" placeholder="Es. Mario Bot, Jarvis...">
+            </div>
 
-            <!-- NUOVA SEZIONE PROFILI FOTOGRAFICI -->
+            <!-- SEZIONE PROFILI FOTOGRAFICI -->
             <div class="space-y-4">
                 <label class="block text-xs uppercase text-red-600 font-orbitron tracking-widest font-bold">Profili Visivi (Riconoscimento)</label>
-                <p class="text-[10px] text-gray-400 font-inter">Inserisci il nome e carica una foto. L'IA la userà per riconoscerti dalla webcam.</p>
+                <p class="text-[10px] text-gray-400 font-inter">Inserisci il nome e carica una foto. L'IA la userà per riconoscerti dalla webcam e assegnare il nome in chat.</p>
                 
                 <div class="flex flex-col gap-3">
                     <!-- PROFILO 1 -->
@@ -309,6 +326,15 @@
         let isCustomAvatar = false;
         const GREETING_COOLDOWN = 60000; 
 
+        // VARIABILE GLOBALE PER UTENTE RICONOSCIUTO
+        let currentRecognizedUser = 'USER';
+
+        // --- GESTIONE NOME IA IN CHAT ---
+        function getBotNameForChat() {
+            const val = document.getElementById('bot-name-input').value.trim();
+            return val ? val.toUpperCase() : 'AI';
+        }
+
         // --- GESTIONE UPLOAD PROFILI FOTOGRAFICI CON RIDIMENSIONAMENTO AUTOMATICO ---
         window.handleProfileUpload = (event, index) => {
             const file = event.target.files[0];
@@ -318,7 +344,6 @@
             reader.onload = (e) => {
                 const img = new Image();
                 img.onload = () => {
-                    // Ridimensiona immagine a max 300x300 per non saturare la memoria locale
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
                     const MAX_SIZE = 300;
@@ -332,10 +357,8 @@
                     canvas.height = height;
                     ctx.drawImage(img, 0, 0, width, height);
                     
-                    // Comprimi in formato JPEG
                     const base64 = canvas.toDataURL('image/jpeg', 0.8);
                     
-                    // Aggiorna array globale e UI
                     window.userVisualProfiles[index - 1].image = base64.split(',')[1];
                     document.getElementById(`prof-img-${index}`).src = base64;
                     document.getElementById(`prof-img-${index}`).style.display = 'block';
@@ -352,7 +375,6 @@
             const voices = window.speechSynthesis.getVoices();
             const voiceSelect = document.getElementById('tts-voice-select');
             
-            // Salva il valore corrente per ripristinarlo
             const savedSettingsStr = localStorage.getItem('mario_bot_settings');
             let savedVoice = "auto";
             if (savedSettingsStr) {
@@ -362,7 +384,6 @@
 
             voiceSelect.innerHTML = '<option value="auto">-- Automatica (Migliore Naturale) --</option>';
             
-            // Filtra le voci italiane
             const itVoices = voices.filter(v => v.lang.includes('it'));
             
             itVoices.forEach((voice) => {
@@ -370,7 +391,6 @@
                 option.value = voice.voiceURI;
                 
                 let label = voice.name;
-                // Evidenzia visivamente le voci migliori (Edge e Chrome)
                 if (label.includes('Natural') || label.includes('Online')) {
                     label = '🌟 ' + label + ' (Edge/Naturale)';
                 } else if (label.includes('Google')) {
@@ -394,9 +414,8 @@
         let isBlinking = false;
         let nextBlinkTime = 0;
         let blinkDuration = 120; // ms
-        let morphTargetMeshes = []; // Cache per mesh con blend shapes nel GLB
+        let morphTargetMeshes = []; 
 
-        // --- MODIFICA STILE IA ---
         const baseSystemPrompt = `Sei un'IA avanzata, intelligente e amichevole. Il tuo stile di conversazione è brillante, articolato, empatico e professionale, esattamente come un assistente virtuale di altissimo livello. Fornisci risposte chiare, curate nei dettagli e discorsive, mantenendo un tono cordiale e disponibile. Essendo un avatar vocale, evita liste o formattazioni complesse (come markdown eccessivo) e prediligi un discorso fluido e naturale.`;
 
         function getEffectiveApiKey() { return document.getElementById('api-key-input').value || apiKey; }
@@ -545,7 +564,6 @@
                     if (head) scene.remove(head);
                     head = gltf.scene;
                     
-                    // Configurazione Luci Avatar Personalizzato
                     isCustomAvatar = true;
                     updateLighting();
 
@@ -557,12 +575,10 @@
                     head.scale.set(scale, scale, scale);
                     head.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
                     
-                    // Disattiva eventuale wireframe forzato e caccia Morph Targets
                     morphTargetMeshes = [];
                     head.traverse((child) => {
                         if (child.isMesh) {
                             child.material.wireframe = false;
-                            // Cerca se ha blendshapes per gli occhi
                             if (child.morphTargetDictionary) {
                                 morphTargetMeshes.push(child);
                             }
@@ -590,28 +606,39 @@
                     targetRot.y = (n.x - 0.5) * -1.5; 
                     targetRot.x = (n.y - 0.5) * 1; 
                     document.getElementById('face-stat').innerText = `- Face Confidence: ${(res.multiFaceLandmarks[0][0].visibility || 0.8).toFixed(2)}`;
-                    if (!isPersonPresent) { isPersonPresent = true; badge.classList.remove('hidden'); handlePersonAppeared(); } 
-                } else { if (isPersonPresent) { isPersonPresent = false; lastFaceSeenTime = Date.now(); badge.classList.add('hidden'); } } 
+                    if (!isPersonPresent) { 
+                        isPersonPresent = true; 
+                        badge.classList.remove('hidden'); 
+                        handlePersonAppeared(); 
+                    } 
+                } else { 
+                    if (isPersonPresent) { 
+                        isPersonPresent = false; 
+                        lastFaceSeenTime = Date.now(); 
+                        badge.classList.add('hidden'); 
+                        // Resetta l'utente al default se esce dall'inquadratura
+                        currentRecognizedUser = 'USER';
+                        badge.innerText = "LIVE";
+                    } 
+                } 
             }); 
         }
 
         async function handlePersonAppeared() { if (Date.now() - lastFaceSeenTime > GREETING_COOLDOWN) await identifyFace(); }
 
-        // --- SISTEMA DI RICONOSCIMENTO FACCIALE MULTI-PROFILO ---
+        // --- SISTEMA DI RICONOSCIMENTO FACCIALE CON ASSEGNAZIONE NOME CHAT ---
         async function identifyFace() {
             const v = document.getElementById('input-video'); const c = document.getElementById('snapshot-canvas'); const ctx = c.getContext('2d'); c.width = 640; c.height = 480; ctx.drawImage(v, 0, 0, 640, 480); 
             const webcamBase64 = c.toDataURL('image/jpeg', 0.8).split(',')[1];
             
             try {
-                // Costruzione del prompt multi-immagine
                 let promptParts = [
-                    { text: `Fase di riconoscimento visivo. Di seguito troverai delle FOTO PROFILO di riferimento associate ai loro NOMI. Subito dopo, troverai l'immagine attuale della WEBCAM. Confronta la webcam con le foto profilo. Se riconosci la persona, saluta calorosamente e con il tuo stile discorsivo ed empatico dicendo "Ciao [Nome]". Se non riconosci nessuno o la lista è vuota, saluta in modo cordiale e generico.` }
+                    { text: `Fase di riconoscimento visivo. Di seguito troverai delle FOTO PROFILO di riferimento associate ai loro NOMI. Subito dopo, troverai l'immagine attuale della WEBCAM. Confronta la webcam con le foto profilo. Se riconosci la persona, saluta calorosamente e con il tuo stile discorsivo ed empatico dicendo obbligatoriamente il suo [Nome]. Se non riconosci nessuno o la lista è vuota, saluta in modo cordiale e generico.` }
                 ];
 
-                // Aggiungi tutti i profili validati dall'utente nel prompt
                 let hasProfiles = false;
                 window.userVisualProfiles.forEach((p, index) => {
-                    const pName = document.getElementById(`prof-name-${index+1}`).value;
+                    const pName = document.getElementById(`prof-name-${index+1}`).value.trim();
                     if(pName && p.image) {
                         hasProfiles = true;
                         promptParts.push({ text: `[FOTO PROFILO DI RIFERIMENTO - NOME: ${pName}]` });
@@ -632,10 +659,26 @@
                     body: JSON.stringify({ contents: [{ parts: promptParts }] }) 
                 });
                 
-                const d = await res.json(); const text = d.candidates[0].content.parts[0].text;
+                const d = await res.json(); 
+                const text = d.candidates[0].content.parts[0].text;
                 
-                const badge = document.getElementById('user-badge'); badge.innerText = "LIVE"; if(isPersonPresent) badge.classList.remove('hidden');
-                addChatMessage('AI', text, 'ai'); playTTS(text);
+                // Analizza la risposta per vedere se ha detto il nome di uno dei profili
+                let foundName = "USER";
+                window.userVisualProfiles.forEach((p, index) => {
+                    const pName = document.getElementById(`prof-name-${index+1}`).value.trim();
+                    if(pName && text.toLowerCase().includes(pName.toLowerCase())) {
+                        foundName = pName.toUpperCase();
+                    }
+                });
+                
+                // Aggiorna lo stato globale e il badge video
+                currentRecognizedUser = foundName;
+                const badge = document.getElementById('user-badge'); 
+                badge.innerText = currentRecognizedUser !== "USER" ? currentRecognizedUser : "LIVE"; 
+                if(isPersonPresent) badge.classList.remove('hidden');
+
+                addChatMessage(getBotNameForChat(), text, 'ai'); 
+                playTTS(text);
             } catch (e) {
                 console.error("Errore nel riconoscimento facciale", e);
             }
@@ -651,36 +694,27 @@
             } else { isCameraActive = false; document.getElementById('input-video-container').style.display = 'none'; document.getElementById('cam-toggle-btn').classList.remove('bg-red-600/20'); } 
         }
 
-        // --- MODULO FUNZIONALE AUTO-BLINK ---
         function updateBlinkingLogic() {
             const now = Date.now();
             
-            // Gestione tempistica lampeggio
             if (now > nextBlinkTime) {
                 isBlinking = true;
-                // Prossimo battito tra 3 e 6 secondi
                 nextBlinkTime = now + 3000 + Math.random() * 3000; 
-                // Il battito finisce dopo blinkDuration
                 setTimeout(() => { isBlinking = false; }, blinkDuration);
             }
 
-            // Interpolazione intensità per fluidità
             const targetIntensity = isBlinking ? 1.0 : 0.0;
             blinkIntensity = THREE.MathUtils.lerp(blinkIntensity, targetIntensity, 0.4);
 
-            // Applicazione all'Avatar Procedurale (Scale degli occhi)
             if (eyes && eyes.length > 0) {
                 eyes.forEach(e => {
-                    // Mantiene la scala X/Z ma schiaccia la Y
                     const currentScale = isSpeaking ? (1 + Math.sin(Date.now() * 0.04) * 0.3) : 1;
                     e.scale.set(currentScale, currentScale * (1 - blinkIntensity), currentScale);
                 });
             }
 
-            // Applicazione all'Avatar GLB (Morph Targets / Blend Shapes)
             if (isCustomAvatar && morphTargetMeshes.length > 0) {
                 morphTargetMeshes.forEach(mesh => {
-                    // Cerca nomi comuni per il battito ciglia nel dizionario del modello
                     const blinkKeys = ['eyeBlinkLeft', 'eyeBlinkRight', 'Blink', 'blink_left', 'blink_right', 'Eyes_Closed'];
                     blinkKeys.forEach(key => {
                         const index = mesh.morphTargetDictionary[key];
@@ -695,7 +729,6 @@
         function animate() { 
             requestAnimationFrame(animate); 
             
-            // Esegui logica Auto-Blink
             updateBlinkingLogic();
 
             if (head) { 
@@ -708,20 +741,30 @@
             if (renderer && scene && camera) renderer.render(scene, camera); 
         }
 
-        async function handleSend() { const input = document.getElementById('user-input'); const text = input.value.trim(); if (!text) return; isTalking = true; if (recognition) recognition.stop(); addChatMessage('USER', text, 'user'); input.value = ''; processAI(text); }
-        async function handleSendImmersive() { const input = document.getElementById('user-input-fs'); const text = input.value.trim(); if (!text) return; isTalking = true; if (recognition) recognition.stop(); addChatMessage('USER', text, 'user'); input.value = ''; processAI(text); }
+        // --- INVIO MESSAGGI UTILIZZANDO IL NOME DINAMICO ---
+        async function handleSend() { 
+            const input = document.getElementById('user-input'); const text = input.value.trim(); 
+            if (!text) return; isTalking = true; if (recognition) recognition.stop(); 
+            addChatMessage(currentRecognizedUser, text, 'user'); 
+            input.value = ''; processAI(text); 
+        }
+        async function handleSendImmersive() { 
+            const input = document.getElementById('user-input-fs'); const text = input.value.trim(); 
+            if (!text) return; isTalking = true; if (recognition) recognition.stop(); 
+            addChatMessage(currentRecognizedUser, text, 'user'); 
+            input.value = ''; processAI(text); 
+        }
         
         async function processAI(text) { 
-            // Generazione del prompt unendo la base generica alle sole istruzioni fornite nel pannello impostazioni
             const prompt = `${baseSystemPrompt}\nCONTESTO E ISTRUZIONI DELL'UTENTE (Seguile rigorosamente):\n${getExtraInstructions()}`; 
             try { 
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getSelectedModel()}:generateContent?key=${getEffectiveApiKey()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: text }] }], systemInstruction: { parts: [{ text: prompt }] } }) }); 
                 const d = await res.json(); const reply = d.candidates?.[0]?.content?.parts?.[0]?.text || "..."; 
-                addChatMessage('AI', reply, 'ai'); playTTS(reply); 
+                addChatMessage(getBotNameForChat(), reply, 'ai'); 
+                playTTS(reply); 
             } catch (e) { isTalking = false; if (isContinuousMic) safeStart(); } 
         }
 
-        // --- MOTORE TTS BROWSER (GRATUITO) CON SELEZIONE ---
         function playTTS(text) { 
             if (!('speechSynthesis' in window)) {
                 console.warn("Sintesi vocale non supportata.");
@@ -730,7 +773,6 @@
                 return;
             }
 
-            // Ferma qualsiasi audio precedente
             window.speechSynthesis.cancel();
             
             isTalking = true;
@@ -746,11 +788,9 @@
             const selectedVoiceURI = voiceSelect ? voiceSelect.value : "auto";
 
             if (selectedVoiceURI !== "auto" && voices.length > 0) {
-                // Usa la voce specifica selezionata dall'utente
                 const chosenVoice = voices.find(v => v.voiceURI === selectedVoiceURI);
                 if (chosenVoice) utterance.voice = chosenVoice;
             } else if (voices.length > 0) {
-                // Ricerca intelligente automatica (comportamento di default: prima Edge, poi Chrome, poi generica IT)
                 const bestVoice = voices.find(v => v.lang.includes('it') && (v.name.includes('Natural') || v.name.includes('Online'))) ||
                                   voices.find(v => v.lang.includes('it') && v.name.includes('Google')) ||
                                   voices.find(v => v.lang.includes('it'));
@@ -759,17 +799,8 @@
                 }
             }
 
-            utterance.onend = () => { 
-                isSpeaking = false; 
-                isTalking = false; 
-                if (isContinuousMic) safeStart(); 
-            };
-            
-            utterance.onerror = () => { 
-                isSpeaking = false; 
-                isTalking = false; 
-                if (isContinuousMic) safeStart(); 
-            };
+            utterance.onend = () => { isSpeaking = false; isTalking = false; if (isContinuousMic) safeStart(); };
+            utterance.onerror = () => { isSpeaking = false; isTalking = false; if (isContinuousMic) safeStart(); };
 
             window.speechSynthesis.speak(utterance);
         }
@@ -781,11 +812,11 @@
             div.innerHTML = `<span class="font-orbitron font-bold text-[10px] block uppercase mb-1 tracking-widest">${sender}</span><p>${text}</p>`; 
             box.appendChild(div); box.scrollTop = box.scrollHeight; 
 
-            // Aggiunta alla cronologia immersiva (nuvolette a sinistra)
             const hist = document.getElementById('immersive-history');
             const hDiv = document.createElement('div');
             hDiv.className = `hist-msg ${type}`;
-            hDiv.innerText = text;
+            // Mettiamo il mittente in grassetto anche nella nuvoletta per capire chi parla (opzionale ma utile)
+            hDiv.innerHTML = `<span style="font-weight:bold; font-size:9px; opacity:0.7; display:block; margin-bottom:2px;">${sender}</span>${text}`;
             hist.appendChild(hDiv);
             setTimeout(() => { hist.scrollTop = hist.scrollHeight; }, 100);
         }
